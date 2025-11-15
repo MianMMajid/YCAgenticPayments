@@ -231,6 +231,87 @@ app.include_router(escrow_metrics.router, tags=["metrics"])
 app.include_router(health.router, tags=["health"])
 
 
+# Locus Integration Initialization
+def initialize_locus_on_startup():
+    """Initialize Locus infrastructure on app startup."""
+    try:
+        from services.locus_wallet_manager import init_wallet_manager, get_wallet_manager
+        from services.locus_integration import init_locus, get_locus
+        from services.locus_payment_handler import LocusPaymentHandler
+        
+        print("\n" + "="*70)
+        print("INITIALIZING COUNTER AI + LOCUS")
+        print("="*70)
+        
+        # Step 1: Initialize wallet
+        print("\n[1/4] Initializing wallet...")
+        wallet = init_wallet_manager()
+        wallet_info = wallet.get_wallet_info()
+        print(f"  ✓ Wallet: {wallet_info['name']}")
+        print(f"  ✓ Address: {wallet_info['address']}")
+        print(f"  ✓ Network: {wallet_info['network']}")
+        
+        # Step 2: Initialize Locus
+        print("\n[2/4] Initializing Locus...")
+        locus = init_locus(settings.locus_api_key, wallet.get_address())
+        total_budget = sum([
+            settings.agent_title_budget,
+            settings.agent_inspection_budget,
+            settings.agent_appraisal_budget,
+            settings.agent_underwriting_budget
+        ])
+        print(f"  ✓ Locus API initialized")
+        print(f"  ✓ Total budget: ${total_budget:.4f}/day")
+        
+        # Step 3: Initialize payment handler
+        print("\n[3/4] Initializing payment handler...")
+        # Use real API if not in demo mode
+        use_real_api = not settings.demo_mode
+        payment_handler = LocusPaymentHandler(locus, use_real_api=use_real_api)
+        print(f"  ✓ Payment handler ready ({'real API' if use_real_api else 'mock mode'})")
+        
+        # Step 4: Display agent info
+        print("\n[4/4] Agents configured:")
+        agent_info = locus.get_all_agent_info()
+        for agent_name, info in agent_info.items():
+            print(f"  ✓ {agent_name}: ${info['budget']:.4f}/day (Agent: {info['agent_id'][:20]}...)")
+        
+        print("\n" + "="*70)
+        print("✓ COUNTER AI + LOCUS INITIALIZED SUCCESSFULLY")
+        print("="*70 + "\n")
+        
+        # Store in app state for access in routes
+        app.state.locus_wallet = wallet
+        app.state.locus = locus
+        app.state.locus_payment_handler = payment_handler
+        
+        return {
+            'wallet': wallet,
+            'locus': locus,
+            'payment_handler': payment_handler
+        }
+        
+    except Exception as e:
+        logger.error(f"Locus initialization failed: {str(e)}", exc_info=True)
+        print(f"\n✗ INITIALIZATION FAILED: {str(e)}")
+        print("="*70 + "\n")
+        # Don't fail startup if Locus is not configured (for demo mode)
+        if settings.demo_mode:
+            logger.warning("Continuing in demo mode without Locus")
+            return None
+        raise
+
+
+# Initialize Locus on startup (if configured)
+@app.on_event("startup")
+async def startup_event():
+    """Initialize Locus on application startup."""
+    if settings.locus_api_key and settings.locus_wallet_address:
+        initialize_locus_on_startup()
+    else:
+        logger.info("Locus not configured, skipping initialization (demo mode)")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

@@ -179,10 +179,10 @@ class TitleSearchAgent(VerificationAgent):
         transaction: Transaction
     ) -> Dict[str, Any]:
         """
-        Perform title search (AI-powered mock for hackathon demo).
+        Perform title search via x402 payment service (Locus or mock).
         
-        In production, this would integrate with title company APIs.
-        For hackathon, uses AI to generate realistic reports.
+        In production with Locus: Uses Locus payment handler for real payments.
+        In demo mode: Uses mock services.
         
         Args:
             property_id: The property identifier
@@ -191,29 +191,64 @@ class TitleSearchAgent(VerificationAgent):
         Returns:
             Dict containing title search results
         """
-        from services.ai_mock_verification import ai_mock_service
+        from config.settings import settings
+        from services.x402_protocol_handler import X402ProtocolHandler
+        from services.locus_integration import get_locus
         
         self.log_activity(
-            "Performing title search via AI-powered mock service (hackathon demo)",
+            "Performing title search via x402 payment service",
             extra_data={"property_id": property_id}
         )
         
-        # Get property address from transaction metadata or use property_id
-        property_address = (
-            transaction.transaction_metadata.get("property_address") 
-            if transaction.transaction_metadata 
-            else f"Property {property_id}"
+        service_url = settings.landamerica_service
+        agent_id = "title-agent"
+        recipient = settings.service_recipient_landamerica  # LandAmerica Wallet
+        
+        # Convert payment amount to USDC (from USD)
+        amount_usdc = float(self.PAYMENT_AMOUNT) / 1000.0  # $1200 -> 1.2 USDC (example conversion)
+        
+        # Try to use Locus if available
+        locus = get_locus()
+        payment_handler = None
+        
+        if locus and not settings.use_mock_services:
+            try:
+                from services.locus_payment_handler import LocusPaymentHandler
+                payment_handler = LocusPaymentHandler(locus)
+                self.log_activity("Using Locus payment handler", extra_data={"agent": agent_id})
+            except Exception as e:
+                self.log_activity(f"Locus unavailable, using mock: {str(e)}", level="WARNING")
+        
+        # Initialize x402 protocol handler
+        x402_handler = X402ProtocolHandler(payment_handler=payment_handler)
+        
+        # Execute x402 flow
+        result = await x402_handler.execute_x402_flow(
+            service_url=service_url,
+            amount=amount_usdc,
+            agent_id=agent_id if payment_handler else None,
+            recipient=recipient if payment_handler else None
         )
         
-        # Generate AI-powered realistic title search report
-        results = await ai_mock_service.generate_title_search_report(
-            property_address=property_address,
-            property_id=property_id,
-            purchase_price=transaction.total_purchase_price,
-            seller_name=transaction.seller_agent_id
-        )
+        if result.get("status") != "success":
+            error_msg = result.get("error", "Unknown error")
+            self.log_activity(f"x402 flow failed: {error_msg}", level="ERROR")
+            raise Exception(f"Title search failed: {error_msg}")
         
-        return results
+        # Extract data from result
+        data = result.get("data", {})
+        result_data = data.get("result", data)
+        
+        return {
+            "property_address": result_data.get("property_address", f"Property {property_id}"),
+            "current_owner": result_data.get("current_owner", "Unknown"),
+            "chain_of_title": result_data.get("chain_of_title", []),
+            "liens_and_encumbrances": result_data.get("liens_and_encumbrances", []),
+            "has_issues": not result_data.get("title_status") == "CLEAR",
+            "title_status": result_data.get("title_status", "UNKNOWN"),
+            "payment_tx": result.get("tx_hash", result.get("payment_signed")),
+            "report_date": result_data.get("report_date")
+        }
     
     def _generate_document_urls(self, task_id: str) -> List[str]:
         """
