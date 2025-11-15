@@ -82,9 +82,49 @@ class Settings(BaseSettings):
     sentry_traces_sample_rate: float = 0.1
     sentry_profiles_sample_rate: float = 0.1
     
+    # Locus Payment Infrastructure
+    locus_wallet_address: str = ""
+    locus_wallet_private_key: str = ""
+    locus_wallet_name: str = "Yc-MakeEmPay"
+    locus_chain_id: int = 8453  # Base Mainnet
+    locus_api_key: str = ""
+    
+    # Locus Agent IDs & Keys
+    locus_agent_title_id: str = ""
+    locus_agent_title_key: str = ""
+    locus_agent_inspection_id: str = ""
+    locus_agent_inspection_key: str = ""
+    locus_agent_appraisal_id: str = ""
+    locus_agent_appraisal_key: str = ""
+    locus_agent_underwriting_id: str = ""
+    locus_agent_underwriting_key: str = ""
+    
+    # Agent Budgets (in USDC)
+    agent_title_budget: float = 0.03
+    agent_inspection_budget: float = 0.012
+    agent_appraisal_budget: float = 0.010
+    agent_underwriting_budget: float = 0.019
+    
+    # Service Recipient Wallet Addresses (where payments are sent)
+    service_recipient_landamerica: str = "0x86752df5821648a76c3f9e15766cca3d5226903a"  # Updated from Locus dashboard
+    service_recipient_amerispec: str = "0x0c8115aac3551a4d5282b9dc0aa8721b80f341bc"  # Updated from Locus dashboard
+    service_recipient_corelogic: str = "0xbf951bed631ddd22f2461c67539708861050c060"  # Updated from Locus dashboard
+    service_recipient_fanniemae: str = "0x5a9a151475b9e7fe2a74b4f8b5277de4e8030953"  # Updated from Locus dashboard
+    
+    # Mock Services (for demo)
+    landamerica_service: str = "http://localhost:5001/landamerica/title-search"
+    amerispec_service: str = "http://localhost:5001/amerispec/inspection"
+    corelogic_service: str = "http://localhost:5001/corelogic/valuation"
+    fanniemae_service: str = "http://localhost:5001/fanniemae/verify"
+    
+    # Demo Mode
+    demo_mode: bool = True
+    use_mock_services: bool = True
+    
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "ignore"  # Ignore extra env vars not in this class
 
 
 # Global settings instance

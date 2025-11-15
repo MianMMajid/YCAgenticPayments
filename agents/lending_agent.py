@@ -256,9 +256,7 @@ class LendingAgent(VerificationAgent):
         transaction: Transaction
     ) -> Dict[str, Any]:
         """
-        Perform lending verification (mock implementation for MVP).
-        
-        In production, this would integrate with lender APIs.
+        Perform lending verification via x402 payment service (Locus or mock).
         
         Args:
             property_id: The property identifier
@@ -267,15 +265,14 @@ class LendingAgent(VerificationAgent):
         Returns:
             Dict containing lending verification results
         """
-        # Mock lending verification results
-        # In production, this would call external lender APIs
+        from config.settings import settings
+        from services.x402_protocol_handler import X402ProtocolHandler
+        from services.locus_integration import get_locus
         
         self.log_activity(
-            "Performing lending verification via lender API (mock)",
+            "Performing lending verification via x402 payment service",
             extra_data={"property_id": property_id}
         )
-        
-        from services.ai_mock_verification import ai_mock_service
         
         # Calculate loan amount (purchase price minus earnest money)
         loan_amount = transaction.total_purchase_price - transaction.earnest_money
@@ -283,18 +280,59 @@ class LendingAgent(VerificationAgent):
         # Get property address from transaction metadata
         metadata = transaction.transaction_metadata or {}
         property_address = metadata.get("property_address", f"Property {property_id}")
-        borrower_name = metadata.get("buyer_name")
         
-        # Generate AI-powered realistic lending verification
-        results = await ai_mock_service.generate_lending_verification(
-            property_address=property_address,
-            loan_amount=loan_amount,
-            purchase_price=transaction.total_purchase_price,
-            down_payment=transaction.earnest_money,
-            borrower_name=borrower_name
+        service_url = settings.fanniemae_service
+        agent_id = "underwriting-agent"  # Note: using "underwriting" for Locus
+        recipient = settings.service_recipient_fanniemae  # Fannie Mae Wallet
+        
+        # Convert payment amount to USDC (0.00 but signature required)
+        amount_usdc = float(self.PAYMENT_AMOUNT) / 1000.0  # $0 -> 0.0 USDC
+        
+        # Try to use Locus if available
+        locus = get_locus()
+        payment_handler = None
+        
+        if locus and not settings.use_mock_services:
+            try:
+                from services.locus_payment_handler import LocusPaymentHandler
+                payment_handler = LocusPaymentHandler(locus)
+            except Exception as e:
+                self.log_activity(f"Locus unavailable, using mock: {str(e)}", level="WARNING")
+        
+        # Initialize x402 protocol handler
+        x402_handler = X402ProtocolHandler(payment_handler=payment_handler)
+        
+        # Execute x402 flow
+        result = await x402_handler.execute_x402_flow(
+            service_url=service_url,
+            amount=amount_usdc,
+            agent_id=agent_id if payment_handler else None,
+            recipient=recipient if payment_handler else None
         )
         
-        return results
+        if result.get("status") != "success":
+            error_msg = result.get("error", "Unknown error")
+            self.log_activity(f"x402 flow failed: {error_msg}", level="ERROR")
+            raise Exception(f"Lending verification failed: {error_msg}")
+        
+        # Extract data from result
+        data = result.get("data", {})
+        result_data = data.get("result", data)
+        
+        return {
+            "lender_name": result_data.get("lender_name", "Fannie Mae"),
+            "loan_officer_name": result_data.get("loan_officer_name", "Unknown"),
+            "loan_officer_contact": result_data.get("loan_officer_contact", "N/A"),
+            "loan_approved": result_data.get("loan_approved", True),
+            "loan_amount": result_data.get("loan_amount", float(loan_amount)),
+            "loan_type": result_data.get("loan_type", "conventional"),
+            "interest_rate": result_data.get("interest_rate", 6.5),
+            "loan_term_years": result_data.get("loan_term_years", 30),
+            "underwriting_complete": result_data.get("underwriting_complete", True),
+            "purchase_price": float(transaction.total_purchase_price),
+            "payment_tx": result.get("tx_hash", result.get("payment_signed")),
+            "status": result_data.get("status", "PRE-APPROVED")
+        }
     
     def _generate_document_urls(self, task_id: str) -> List[str]:
         """
