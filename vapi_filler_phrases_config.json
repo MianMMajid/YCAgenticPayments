@@ -1,0 +1,19 @@
+{
+  "fillerPhrases": [
+    "Let me check the records on that...",
+    "Looking that up for you...",
+    "One moment while I verify...",
+    "Let me pull up those details...",
+    "Checking the database now...",
+    "Give me just a second to find that...",
+    "Let me search for that information...",
+    "Looking into that right now...",
+    "One moment, checking the listings...",
+    "Let me see what I can find..."
+  ],
+  "fillerPhrasesConfig": {
+    "enabled": true,
+    "playbackDuringToolCalls": true,
+    "description": "These phrases are played while backend tools are executing to maintain natural conversation flow and mask API latency. They help keep the user engaged during the 200-600ms tool execution time."
+  }
+}
