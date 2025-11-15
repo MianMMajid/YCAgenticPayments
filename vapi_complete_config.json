@@ -1,0 +1,208 @@
+{
+  "name": "Counter AI Real Estate Assistant",
+  "firstMessage": "Hi, this is Counter, your real estate assistant. How can I help you find a home today?",
+  "model": {
+    "provider": "openai",
+    "model": "gpt-4o",
+    "temperature": 0.7,
+    "systemPrompt": "You are Counter, an executive assistant helping a home buyer find and purchase property. You act as their representative in communications with listing agents and help them make informed decisions.\n\nYour personality:\n- Professional but friendly and conversational\n- Proactive in suggesting next steps\n- Clear and concise in presenting information\n- Patient when users need clarification\n- Confident when discussing property details and risks\n\nYour capabilities:\n1. Search for properties based on location, price, and preferences\n2. Analyze properties for potential risks (overpricing, flood zones, crime, tax issues)\n3. Schedule property viewings by coordinating with listing agents\n4. Draft purchase offers with customizable terms\n\nImportant guidelines:\n- Always confirm key details before taking action (e.g., offer price, viewing times)\n- Present property information in a natural, conversational way\n- When presenting multiple properties, describe them one at a time and ask if the user wants to hear more\n- For risk analysis, prioritize high-severity issues first\n- When scheduling viewings, confirm the user's availability before contacting agents\n- For offers, walk through terms step-by-step (price, closing timeline, contingencies)\n- If external services are unavailable, apologize and suggest trying again shortly\n\nConversation flow:\n- Start by understanding what the user is looking for\n- Use their preferences to guide recommendations\n- After each action, ask if they want to proceed to the next logical step\n- Remember context from earlier in the conversation\n\nYou represent the buyer as their assistant, not as a licensed real estate agent. Make this clear if asked about your role.",
+    "functions": [
+      {
+        "name": "search_properties",
+        "description": "Search for properties matching the user's criteria. Use this when the user wants to find homes, see listings, or browse properties in a specific area.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "type": "string",
+              "description": "City and state (e.g., 'Baltimore, MD', 'Arlington, VA')"
+            },
+            "max_price": {
+              "type": "integer",
+              "description": "Maximum purchase price in dollars"
+            },
+            "min_beds": {
+              "type": "integer",
+              "description": "Minimum number of bedrooms"
+            },
+            "min_baths": {
+              "type": "number",
+              "description": "Minimum number of bathrooms (can be decimal like 1.5)"
+            },
+            "property_type": {
+              "type": "string",
+              "enum": ["single-family", "condo", "townhouse", "multi-family"],
+              "description": "Type of property"
+            },
+            "user_id": {
+              "type": "string",
+              "description": "User identifier from the conversation context"
+            }
+          },
+          "required": ["location", "max_price", "user_id"]
+        },
+        "url": "https://your-deployment-url.vercel.app/tools/search"
+      },
+      {
+        "name": "analyze_risk",
+        "description": "Analyze a property for potential red flags including overpricing, flood risk, crime, and tax issues. Use this when the user asks about problems, risks, or wants to check if a property is a good deal.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "property_id": {
+              "type": "string",
+              "description": "Unique identifier for the property from search results"
+            },
+            "address": {
+              "type": "string",
+              "description": "Full property address"
+            },
+            "list_price": {
+              "type": "integer",
+              "description": "Listed price of the property in dollars"
+            },
+            "user_id": {
+              "type": "string",
+              "description": "User identifier from the conversation context"
+            }
+          },
+          "required": ["property_id", "address", "list_price", "user_id"]
+        },
+        "url": "https://your-deployment-url.vercel.app/tools/analyze-risk"
+      },
+      {
+        "name": "schedule_viewing",
+        "description": "Schedule a property viewing by contacting the listing agent. Use this when the user wants to see a property, book a showing, or arrange a tour.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "property_id": {
+              "type": "string",
+              "description": "Unique identifier for the property"
+            },
+            "listing_url": {
+              "type": "string",
+              "description": "URL of the property listing (typically from Zillow)"
+            },
+            "requested_time": {
+              "type": "string",
+              "format": "date-time",
+              "description": "Requested viewing time in ISO 8601 format (e.g., '2025-11-15T14:00:00Z')"
+            },
+            "user_id": {
+              "type": "string",
+              "description": "User identifier from the conversation context"
+            },
+            "user_name": {
+              "type": "string",
+              "description": "User's full name"
+            },
+            "user_email": {
+              "type": "string",
+              "description": "User's email address"
+            }
+          },
+          "required": ["property_id", "listing_url", "requested_time", "user_id", "user_name", "user_email"]
+        },
+        "url": "https://your-deployment-url.vercel.app/tools/schedule"
+      },
+      {
+        "name": "draft_offer",
+        "description": "Generate a purchase offer document for the user to sign. Use this when the user wants to make an offer, submit a bid, or purchase a property.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "property_id": {
+              "type": "string",
+              "description": "Unique identifier for the property"
+            },
+            "address": {
+              "type": "string",
+              "description": "Full property address"
+            },
+            "offer_price": {
+              "type": "integer",
+              "description": "Offer amount in dollars"
+            },
+            "closing_days": {
+              "type": "integer",
+              "description": "Number of days until closing (typically 14, 30, or 45)"
+            },
+            "financing_type": {
+              "type": "string",
+              "enum": ["cash", "conventional", "fha", "va"],
+              "description": "Type of financing"
+            },
+            "contingencies": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["inspection", "appraisal", "financing", "sale-of-home"]
+              },
+              "description": "List of contingencies to include in the offer"
+            },
+            "user_id": {
+              "type": "string",
+              "description": "User identifier from the conversation context"
+            },
+            "user_email": {
+              "type": "string",
+              "description": "User's email address for receiving the signing link"
+            }
+          },
+          "required": ["property_id", "address", "offer_price", "closing_days", "financing_type", "user_id", "user_email"]
+        },
+        "url": "https://your-deployment-url.vercel.app/tools/draft-offer"
+      }
+    ]
+  },
+  "voice": {
+    "provider": "cartesia",
+    "voiceId": "a0e99841-438c-4a64-b679-ae501e7d6091",
+    "model": "sonic-english"
+  },
+  "transcriber": {
+    "provider": "deepgram",
+    "model": "nova-2",
+    "language": "en"
+  },
+  "fillerPhrases": [
+    "Let me check the records on that...",
+    "Looking that up for you...",
+    "One moment while I verify...",
+    "Let me pull up those details...",
+    "Checking the database now...",
+    "Give me just a second to find that...",
+    "Let me search for that information...",
+    "Looking into that right now...",
+    "One moment, checking the listings...",
+    "Let me see what I can find..."
+  ],
+  "voiceActivityDetection": {
+    "enabled": true,
+    "sensitivity": "high",
+    "silenceTimeout": 1.0
+  },
+  "interruptionHandling": {
+    "enabled": true,
+    "stopOnInterruption": true,
+    "resumeAfterInterruption": false,
+    "clearBufferOnInterruption": true
+  },
+  "endpointing": {
+    "enabled": true,
+    "silenceDuration": 0.8
+  },
+  "backgroundNoiseSuppression": {
+    "enabled": true,
+    "level": "medium"
+  },
+  "recordingEnabled": false,
+  "maxCallDuration": 3600,
+  "metadata": {
+    "version": "1.0.0",
+    "description": "Counter AI Real Estate Assistant - Voice-first buyer's agent system",
+    "created": "2025-11-15",
+    "requirements": ["5.1", "5.2", "5.3", "5.5"]
+  }
+}

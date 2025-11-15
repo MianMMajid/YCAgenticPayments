@@ -1,0 +1,51 @@
+{
+  "twilioIntegration": {
+    "provider": "twilio",
+    "description": "Configuration for connecting Twilio phone numbers to Vapi assistant",
+    "setup_instructions": [
+      "1. Purchase a phone number in Twilio Console (https://console.twilio.com/)",
+      "2. In Vapi Dashboard, go to Phone Numbers section",
+      "3. Click 'Import Twilio Number'",
+      "4. Enter your Twilio Account SID and Auth Token",
+      "5. Select the phone number to import",
+      "6. Assign the Counter assistant to this phone number",
+      "7. Test by calling the number"
+    ],
+    "sipTrunkConfiguration": {
+      "description": "Vapi automatically configures SIP trunk when you import a Twilio number",
+      "audioCodec": "PCMU",
+      "sampleRate": 8000,
+      "channels": 1
+    },
+    "inboundCallConfiguration": {
+      "assistantId": "{{COUNTER_ASSISTANT_ID}}",
+      "firstMessage": "Hi, this is Counter, your real estate assistant. How can I help you find a home today?",
+      "voicemailDetection": {
+        "enabled": true,
+        "provider": "twilio"
+      },
+      "maxCallDuration": 3600,
+      "recordingEnabled": false
+    },
+    "outboundCallConfiguration": {
+      "enabled": false,
+      "description": "Outbound calls not required for MVP - users call in to Counter"
+    }
+  },
+  "testingChecklist": [
+    "Call the Twilio number and verify connection",
+    "Test that assistant responds with first message",
+    "Verify audio quality (clear, no echo, low latency)",
+    "Test interruption handling (speak while assistant is talking)",
+    "Test tool execution (search for properties)",
+    "Verify call routing works consistently",
+    "Test from different phone types (mobile, landline)",
+    "Check call logs in Vapi dashboard"
+  ],
+  "troubleshooting": {
+    "noAudioOnCall": "Check Twilio webhook configuration points to Vapi SIP endpoint",
+    "highLatency": "Verify Twilio region matches Vapi region (use US for both)",
+    "callDrops": "Check Twilio account balance and verify no rate limits",
+    "echoIssues": "Enable echo cancellation in Twilio console under Voice settings"
+  }
+}

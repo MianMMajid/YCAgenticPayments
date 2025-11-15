@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/**/*.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "api/$1"
+    }
+  ],
+  "functions": {
+    "api/**/*.py": {
+      "runtime": "python3.11",
+      "maxDuration": 10,
+      "memory": 1024
+    }
+  },
+  "env": {
+    "DATABASE_URL": "@database-url",
+    "RENTCAST_API_KEY": "@rentcast-key",
+    "FEMA_API_KEY": "@fema-key",
+    "APIFY_API_TOKEN": "@apify-token",
+    "DOCUSIGN_INTEGRATION_KEY": "@docusign-integration-key",
+    "DOCUSIGN_SECRET_KEY": "@docusign-secret-key",
+    "DOCUSIGN_ACCOUNT_ID": "@docusign-account-id",
+    "DOCUSIGN_WEBHOOK_SECRET": "@docusign-webhook-secret",
+    "GOOGLE_CALENDAR_CLIENT_ID": "@google-calendar-client-id",
+    "GOOGLE_CALENDAR_CLIENT_SECRET": "@google-calendar-client-secret",
+    "REDIS_URL": "@redis-url",
+    "ENCRYPTION_KEY": "@encryption-key",
+    "OPENAI_API_KEY": "@openai-key",
+    "SENDGRID_API_KEY": "@sendgrid-key",
+    "CRIMEOMETER_API_KEY": "@crimeometer-key"
+  }
+}

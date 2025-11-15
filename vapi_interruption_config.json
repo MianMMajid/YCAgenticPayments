@@ -1,0 +1,28 @@
+{
+  "interruptionHandling": {
+    "enabled": true,
+    "stopOnInterruption": true,
+    "description": "Automatically stops TTS playback when user starts speaking"
+  },
+  "voiceActivityDetection": {
+    "enabled": true,
+    "sensitivity": "high",
+    "silenceTimeout": 1.0,
+    "description": "High sensitivity VAD for quick detection of user speech (target: 10ms detection time)"
+  },
+  "endpointing": {
+    "enabled": true,
+    "silenceDuration": 0.8,
+    "description": "Detects end of user speech within 800ms of silence"
+  },
+  "backgroundNoiseSuppression": {
+    "enabled": true,
+    "level": "medium",
+    "description": "Reduces background noise to improve VAD accuracy"
+  },
+  "interruptionBehavior": {
+    "resumeAfterInterruption": false,
+    "clearBufferOnInterruption": true,
+    "description": "When interrupted, clear the audio buffer and process the new user input immediately rather than resuming previous speech"
+  }
+}
