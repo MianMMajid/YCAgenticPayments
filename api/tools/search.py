@@ -7,7 +7,7 @@ import time
 from typing import Optional, List
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request, Response
 from pydantic import BaseModel, Field, validator
 from sqlalchemy.orm import Session
 import openai
@@ -15,6 +15,7 @@ import openai
 from config.settings import settings
 from services.rentcast_client import RentCastClient, RentCastAPIError
 from services.cache_client import cache_client
+from services.demo_data import demo_search_results
 from models.database import get_db
 from models.search_history import SearchHistory
 from models.user import User
@@ -372,7 +373,7 @@ class PropertyResult(BaseModel):
 class SearchResponse(BaseModel):
     """Response model for property search."""
     
-    properties: List[PropertyResult] = Field(default_factory=list, max_length=3)
+    properties: List[PropertyResult] = Field(default_factory=list, max_length=12)
     total_found: int = Field(..., description="Total number of properties found")
     cached: bool = Field(default=False, description="Whether results were served from cache")
     
@@ -400,7 +401,9 @@ class SearchResponse(BaseModel):
 @router.post("/search", response_model=SearchResponse)
 @limiter.limit("10/minute")
 async def search_properties(
-    request: SearchRequest,
+    request: Request,
+    response: Response,
+    payload: SearchRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -419,47 +422,57 @@ async def search_properties(
     Raises:
         HTTPException: If the search fails or required services are unavailable
     """
-    logger.info(f"Property search request: location={request.location}, max_price={request.max_price}, user_id={request.user_id}")
+    logger.info(f"Property search request: location={payload.location}, max_price={payload.max_price}, user_id={payload.user_id}")
     
     # Track active user
-    metrics.track_active_user(request.user_id)
+    metrics.track_active_user(payload.user_id)
     
     # Set Sentry context for error tracking
-    set_user_context(request.user_id)
+    set_user_context(payload.user_id)
     set_tool_context(
         "search_properties",
-        location=request.location,
-        max_price=request.max_price,
-        min_beds=request.min_beds
+        location=payload.location,
+        max_price=payload.max_price,
+        min_beds=payload.min_beds
     )
     add_breadcrumb(
         message="Property search initiated",
         category="tool",
-        data={"location": request.location, "max_price": request.max_price}
+        data={"location": payload.location, "max_price": payload.max_price}
     )
     
     # Update user session timestamp
-    update_user_session(request.user_id, db)
+    update_user_session(payload.user_id, db)
     
     # Track execution time
     start_time = time.time()
     
     try:
+        if settings.demo_mode and not settings.rentcast_api_key:
+            properties, total_found = demo_search_results()
+            duration_ms = (time.time() - start_time) * 1000
+            metrics.track_tool_execution("search_properties", duration_ms, success=True)
+            return SearchResponse(
+                properties=[PropertyResult(**prop) for prop in properties],
+                total_found=total_found,
+                cached=False
+            )
+
         # Generate cache key
         cache_key = generate_cache_key(
-            user_id=request.user_id,
-            location=request.location,
-            max_price=request.max_price,
-            min_price=request.min_price,
-            min_beds=request.min_beds,
-            min_baths=request.min_baths,
-            property_type=request.property_type
+            user_id=payload.user_id,
+            location=payload.location,
+            max_price=payload.max_price,
+            min_price=payload.min_price,
+            min_beds=payload.min_beds,
+            min_baths=payload.min_baths,
+            property_type=payload.property_type
         )
         
         # Check cache first
         cached_result = cache_client.get(cache_key)
         if cached_result:
-            logger.info(f"Returning cached results for user {request.user_id}")
+            logger.info(f"Returning cached results for user {payload.user_id}")
             metrics.track_cache_hit(cache_key)
             
             # Track execution time
@@ -476,7 +489,7 @@ async def search_properties(
         metrics.track_cache_miss(cache_key)
         
         # Parse location
-        city, state = parse_location(request.location)
+        city, state = parse_location(payload.location)
         
         if not city:
             raise HTTPException(
@@ -489,19 +502,19 @@ async def search_properties(
             properties, total_found = await search_rentcast_properties(
                 city=city,
                 state=state,
-                max_price=request.max_price,
-                min_price=request.min_price,
-                min_beds=request.min_beds,
-                min_baths=request.min_baths,
-                property_type=request.property_type
+                max_price=payload.max_price,
+                min_price=payload.min_price,
+                min_beds=payload.min_beds,
+                min_baths=payload.min_baths,
+                property_type=payload.property_type
             )
         except RentCastAPIError as e:
             logger.error(f"RentCast API error: {e}")
             
             # Graceful degradation: Try to find cached results from similar searches
             # Look for cached results in the same location with similar price range
-            fallback_cache_key = f"search:{request.user_id}:*"
-            logger.info(f"Attempting to retrieve fallback cached results for location: {request.location}")
+            fallback_cache_key = f"search:{payload.user_id}:*"
+            logger.info(f"Attempting to retrieve fallback cached results for location: {payload.location}")
             
             # Try to get any cached results for this user in this location
             # This is a simplified fallback - in production, you'd want more sophisticated cache lookup
@@ -509,7 +522,7 @@ async def search_properties(
                 # Check if we have any recent searches for this location
                 location_cache_key = generate_cache_key(
                     user_id="fallback",  # Use a generic key for location-based cache
-                    location=request.location,
+                    location=payload.location,
                     max_price=None,
                     min_price=None,
                     min_beds=None,
@@ -519,7 +532,7 @@ async def search_properties(
                 fallback_result = cache_client.get(location_cache_key)
                 
                 if fallback_result:
-                    logger.info(f"Returning fallback cached results for user {request.user_id}")
+                    logger.info(f"Returning fallback cached results for user {payload.user_id}")
                     return SearchResponse(
                         properties=[PropertyResult(**prop) for prop in fallback_result['properties']],
                         total_found=fallback_result['total_found'],
@@ -546,20 +559,20 @@ async def search_properties(
         # Store search history in database
         try:
             search_history = SearchHistory(
-                user_id=request.user_id,
+                user_id=payload.user_id,
                 query=None,  # Voice query not available in this context
-                location=request.location,
-                max_price=request.max_price,
-                min_price=request.min_price,
-                min_beds=request.min_beds,
-                min_baths=request.min_baths,
-                property_type=request.property_type,
+                location=payload.location,
+                max_price=payload.max_price,
+                min_price=payload.min_price,
+                min_beds=payload.min_beds,
+                min_baths=payload.min_baths,
+                property_type=payload.property_type,
                 results=properties,
                 total_found=total_found
             )
             db.add(search_history)
             db.commit()
-            logger.info(f"Saved search history for user {request.user_id}")
+            logger.info(f"Saved search history for user {payload.user_id}")
         except Exception as e:
             logger.error(f"Failed to save search history: {e}")
             db.rollback()
@@ -586,7 +599,7 @@ async def search_properties(
         # Track execution time and error
         duration_ms = (time.time() - start_time) * 1000
         metrics.track_tool_execution("search_properties", duration_ms, success=False)
-        metrics.track_error("search_error", str(e), {"user_id": request.user_id})
+        metrics.track_error("search_error", str(e), {"user_id": payload.user_id})
         
         raise HTTPException(
             status_code=500,

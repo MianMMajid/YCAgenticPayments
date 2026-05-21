@@ -5,7 +5,7 @@ import time
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,7 @@ from services.rentcast_client import RentCastClient, RentCastAPIError
 from services.fema_client import FEMAClient, FEMAAPIError
 from services.crime_client import CrimeClient, CrimeAPIError
 from services.cache_client import cache_client
+from services.demo_data import demo_risk_response
 from models.database import get_db
 from models.risk_analysis import RiskAnalysis
 from api.middleware import update_user_session
@@ -508,7 +509,9 @@ class RiskResponse(BaseModel):
 @router.post("/analyze-risk", response_model=RiskResponse)
 @limiter.limit("10/minute")
 async def analyze_risk(
-    request: RiskRequest,
+    request: Request,
+    response: Response,
+    payload: RiskRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -527,39 +530,53 @@ async def analyze_risk(
     Raises:
         HTTPException: If the analysis fails or required services are unavailable
     """
-    logger.info(f"Risk analysis request: property_id={request.property_id}, address={request.address}, user_id={request.user_id}")
+    logger.info(f"Risk analysis request: property_id={payload.property_id}, address={payload.address}, user_id={payload.user_id}")
     
     # Track active user
-    metrics.track_active_user(request.user_id)
+    metrics.track_active_user(payload.user_id)
     
     # Set Sentry context for error tracking
-    set_user_context(request.user_id)
+    set_user_context(payload.user_id)
     set_tool_context(
         "analyze_risk",
-        property_id=request.property_id,
-        address=request.address,
-        list_price=request.list_price
+        property_id=payload.property_id,
+        address=payload.address,
+        list_price=payload.list_price
     )
     add_breadcrumb(
         message="Risk analysis initiated",
         category="tool",
-        data={"property_id": request.property_id, "address": request.address}
+        data={"property_id": payload.property_id, "address": payload.address}
     )
     
     # Update user session timestamp
-    update_user_session(request.user_id, db)
+    update_user_session(payload.user_id, db)
     
     # Track execution time
     start_time = time.time()
     
     try:
+        if settings.demo_mode and not settings.rentcast_api_key:
+            response_data = demo_risk_response(
+                property_id=payload.property_id,
+                address=payload.address,
+                list_price=payload.list_price,
+            )
+            duration_ms = (time.time() - start_time) * 1000
+            metrics.track_tool_execution("analyze_risk", duration_ms, success=True)
+            return RiskResponse(
+                flags=[RiskFlag(**flag) for flag in response_data["flags"]],
+                overall_risk=response_data["overall_risk"],
+                data_sources=response_data["data_sources"],
+            )
+
         # Generate cache key using property_id
-        cache_key = f"risk:{request.property_id}"
+        cache_key = f"risk:{payload.property_id}"
         
         # Check cache first (24-hour TTL)
         cached_result = cache_client.get(cache_key)
         if cached_result:
-            logger.info(f"Returning cached risk analysis for property {request.property_id}")
+            logger.info(f"Returning cached risk analysis for property {payload.property_id}")
             metrics.track_cache_hit(cache_key)
             
             # Track execution time
@@ -574,9 +591,9 @@ async def analyze_risk(
         
         # Cache miss
         metrics.track_cache_miss(cache_key)
-        logger.info(f"Cache miss for property {request.property_id}, performing fresh analysis")
+        logger.info(f"Cache miss for property {payload.property_id}, performing fresh analysis")
         # Fetch data from all sources in parallel
-        risk_data = await fetch_all_risk_data(request)
+        risk_data = await fetch_all_risk_data(payload)
         
         # Extract data
         rentcast_data = risk_data.get("rentcast")
@@ -591,7 +608,7 @@ async def analyze_risk(
         
         # Calculate risk flags (gracefully handles missing data)
         flags_data = calculate_risk_flags(
-            list_price=request.list_price,
+            list_price=payload.list_price,
             rentcast_data=rentcast_data,
             fema_data=fema_data,
             crime_data=crime_data
@@ -626,15 +643,15 @@ async def analyze_risk(
         
         # Cache results with 24-hour TTL (86400 seconds)
         cache_client.set(cache_key, response_data, ttl=86400)
-        logger.info(f"Cached risk analysis for property {request.property_id}")
+        logger.info(f"Cached risk analysis for property {payload.property_id}")
         
         # Store risk analysis in database
         try:
             risk_analysis = RiskAnalysis(
-                user_id=request.user_id,
-                property_id=request.property_id,
-                address=request.address,
-                list_price=request.list_price,
+                user_id=payload.user_id,
+                property_id=payload.property_id,
+                address=payload.address,
+                list_price=payload.list_price,
                 flags=formatted_flags,
                 overall_risk=overall_risk,
                 estimated_value=rentcast_data.get("estimated_value") if rentcast_data else None,
@@ -645,7 +662,7 @@ async def analyze_risk(
             )
             db.add(risk_analysis)
             db.commit()
-            logger.info(f"Saved risk analysis for property {request.property_id}, user {request.user_id}")
+            logger.info(f"Saved risk analysis for property {payload.property_id}, user {payload.user_id}")
         except Exception as e:
             logger.error(f"Failed to save risk analysis: {e}")
             db.rollback()
@@ -667,7 +684,7 @@ async def analyze_risk(
         # Track execution time and error
         duration_ms = (time.time() - start_time) * 1000
         metrics.track_tool_execution("analyze_risk", duration_ms, success=False)
-        metrics.track_error("risk_analysis_error", str(e), {"property_id": request.property_id})
+        metrics.track_error("risk_analysis_error", str(e), {"property_id": payload.property_id})
         
         raise HTTPException(
             status_code=500,

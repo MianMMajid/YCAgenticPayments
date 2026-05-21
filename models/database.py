@@ -52,15 +52,22 @@ class EncryptedString(TypeDecorator):
         return value
 
 
-# Create database engine with connection pooling
-engine = create_engine(
-    settings.database_url,
-    poolclass=QueuePool,
-    pool_size=5,
-    max_overflow=10,
-    pool_pre_ping=True,  # Verify connections before using
-    echo=settings.environment == "development"
-)
+engine_kwargs = {
+    "pool_pre_ping": True,  # Verify connections before using
+    "echo": settings.environment == "development"
+}
+
+if settings.database_url.startswith("sqlite"):
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    engine_kwargs.update({
+        "poolclass": QueuePool,
+        "pool_size": 5,
+        "max_overflow": 10,
+    })
+
+# Create database engine with production pooling and SQLite-friendly local defaults
+engine = create_engine(settings.database_url, **engine_kwargs)
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

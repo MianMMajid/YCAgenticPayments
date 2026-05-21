@@ -51,7 +51,13 @@ class VerificationTask(BaseModel):
     
     # Relationships
     transaction = relationship("Transaction", back_populates="verification_tasks")
-    report = relationship("VerificationReport", back_populates="task", uselist=False)
+    report = relationship(
+        "VerificationReport",
+        back_populates="task",
+        uselist=False,
+        primaryjoin="VerificationTask.id == VerificationReport.task_id",
+        foreign_keys="VerificationReport.task_id",
+    )
 
 
 class VerificationReport(BaseModel):
@@ -70,4 +76,9 @@ class VerificationReport(BaseModel):
     reviewer_notes = Column(String(2000), nullable=True)
     
     # Relationships
-    task = relationship("VerificationTask", back_populates="report")
+    task = relationship(
+        "VerificationTask",
+        back_populates="report",
+        primaryjoin="VerificationReport.task_id == VerificationTask.id",
+        foreign_keys=[task_id],
+    )
