@@ -197,10 +197,9 @@ async def list_verification_tasks(
     )
     
     try:
-        # Verify transaction exists
-        orchestrator = EscrowAgentOrchestrator(db)
-        transaction = await orchestrator.get_transaction(transaction_id)
-        await orchestrator.close()
+        # Verify transaction exists without constructing wallet/blockchain clients.
+        from models.transaction import Transaction
+        transaction = db.query(Transaction).filter(Transaction.id == transaction_id).first()
         
         if not transaction:
             raise HTTPException(status_code=404, detail=f"Transaction {transaction_id} not found")

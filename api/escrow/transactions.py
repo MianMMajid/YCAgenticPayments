@@ -141,9 +141,7 @@ async def get_transaction(
     logger.info(f"Fetching transaction {transaction_id}")
     
     try:
-        orchestrator = EscrowAgentOrchestrator(db)
-        transaction = await orchestrator.get_transaction(transaction_id)
-        await orchestrator.close()
+        transaction = db.query(Transaction).filter(Transaction.id == transaction_id).first()
         
         if not transaction:
             raise HTTPException(status_code=404, detail=f"Transaction {transaction_id} not found")

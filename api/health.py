@@ -73,13 +73,19 @@ class DependencyHealth:
         try:
             start_time = datetime.utcnow()
             
+            if not cache_client.client:
+                return {
+                    "status": HealthStatus.DEGRADED if settings.demo_mode else HealthStatus.UNHEALTHY,
+                    "message": "Redis not connected; cache is disabled"
+                }
+
             # Ping Redis
-            cache_client.redis_client.ping()
+            cache_client.client.ping()
             
             response_time = (datetime.utcnow() - start_time).total_seconds()
             
             # Get Redis info
-            info = cache_client.redis_client.info()
+            info = cache_client.client.info()
             
             return {
                 "status": HealthStatus.HEALTHY,
@@ -112,19 +118,23 @@ class DependencyHealth:
             Health check result with status and details
         """
         try:
-            from services.agentic_stripe_client import agentic_stripe_client
-            
             # Check if API key is configured
             if not settings.agentic_stripe_api_key:
                 return {
                     "status": HealthStatus.DEGRADED,
                     "message": "Agentic Stripe API key not configured"
                 }
+
+            from services.agentic_stripe_client import AgenticStripeClient
             
             start_time = datetime.utcnow()
             
-            # Try to make a simple API call (e.g., list wallets or check balance)
-            # For now, we'll just verify the client is initialized
+            # For now, verify the client can be constructed with configured credentials.
+            agentic_stripe_client = AgenticStripeClient(
+                api_key=settings.agentic_stripe_api_key,
+                webhook_secret=settings.agentic_stripe_webhook_secret,
+                network=settings.agentic_stripe_network,
+            )
             if agentic_stripe_client:
                 response_time = (datetime.utcnow() - start_time).total_seconds()
                 
@@ -155,19 +165,23 @@ class DependencyHealth:
             Health check result with status and details
         """
         try:
-            from services.blockchain_client import blockchain_client
-            
             # Check if blockchain RPC URL is configured
-            if not settings.blockchain_rpc_url:
+            if (
+                not settings.blockchain_rpc_url
+                or not settings.blockchain_contract_address
+                or not settings.blockchain_private_key
+            ):
                 return {
                     "status": HealthStatus.DEGRADED,
-                    "message": "Blockchain RPC URL not configured"
+                    "message": "Blockchain credentials not configured"
                 }
+
+            from services.blockchain_client import BlockchainClient
             
             start_time = datetime.utcnow()
             
-            # Try to connect to blockchain
-            # For now, we'll just verify the client is initialized
+            # For now, verify the client can be constructed with configured credentials.
+            blockchain_client = BlockchainClient()
             if blockchain_client:
                 response_time = (datetime.utcnow() - start_time).total_seconds()
                 
@@ -280,11 +294,10 @@ async def readiness_check():
         "circuit_breakers": circuit_breaker_health
     }
     
-    # Critical dependencies: database and redis
-    critical_healthy = (
-        db_health["status"] == HealthStatus.HEALTHY and
-        redis_health["status"] == HealthStatus.HEALTHY
-    )
+    # Critical dependencies: database in demo/local mode, database and redis otherwise.
+    critical_healthy = db_health["status"] == HealthStatus.HEALTHY
+    if not settings.demo_mode:
+        critical_healthy = critical_healthy and redis_health["status"] == HealthStatus.HEALTHY
     
     # Check if any dependency is unhealthy
     any_unhealthy = any(
@@ -299,7 +312,7 @@ async def readiness_check():
     )
     
     # Determine overall status
-    if not critical_healthy or any_unhealthy:
+    if not critical_healthy or (any_unhealthy and not settings.demo_mode):
         overall_status = HealthStatus.UNHEALTHY
         status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     elif any_degraded:

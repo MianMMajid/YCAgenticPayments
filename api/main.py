@@ -306,6 +306,22 @@ def initialize_locus_on_startup():
 @app.on_event("startup")
 async def startup_event():
     """Initialize Locus on application startup."""
+    from models import init_db
+    from models.database import SessionLocal
+    from services.demo_data import seed_demo_data
+
+    init_db()
+    if settings.demo_mode:
+        db = SessionLocal()
+        try:
+            seed_demo_data(db)
+            logger.info("Demo database seeded")
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Demo database seed failed: {e}", exc_info=True)
+        finally:
+            db.close()
+
     if settings.locus_api_key and settings.locus_wallet_address:
         initialize_locus_on_startup()
     else:

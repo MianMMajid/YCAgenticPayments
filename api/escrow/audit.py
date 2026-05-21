@@ -96,10 +96,9 @@ async def get_audit_trail(
     )
     
     try:
-        # Verify transaction exists
-        orchestrator = EscrowAgentOrchestrator(db)
-        transaction = await orchestrator.get_transaction(transaction_id)
-        await orchestrator.close()
+        # Verify transaction exists without constructing wallet/blockchain clients.
+        from models.transaction import Transaction
+        transaction = db.query(Transaction).filter(Transaction.id == transaction_id).first()
         
         if not transaction:
             raise HTTPException(status_code=404, detail=f"Transaction {transaction_id} not found")
@@ -166,24 +165,20 @@ async def get_transaction_events(
     )
     
     try:
-        # Verify transaction exists
-        orchestrator = EscrowAgentOrchestrator(db)
-        transaction = await orchestrator.get_transaction(transaction_id)
-        await orchestrator.close()
+        # Verify transaction exists without constructing wallet/blockchain clients.
+        from models.transaction import Transaction
+        transaction = db.query(Transaction).filter(Transaction.id == transaction_id).first()
         
         if not transaction:
             raise HTTPException(status_code=404, detail=f"Transaction {transaction_id} not found")
         
-        # Get events from database
-        blockchain_logger = BlockchainLogger()
-        
-        events = await blockchain_logger.get_transaction_events(
-            transaction_id=transaction_id,
-            db=db,
-            event_type=event_type
-        )
-        
-        await blockchain_logger.close()
+        # Get events directly from the database. This endpoint is intentionally
+        # the fast local audit view and should not require blockchain credentials.
+        from models.settlement import BlockchainEvent
+        query = db.query(BlockchainEvent).filter(BlockchainEvent.transaction_id == transaction_id)
+        if event_type:
+            query = query.filter(BlockchainEvent.event_type == event_type.value)
+        events = query.order_by(BlockchainEvent.timestamp.desc()).all()
         
         return EventListResponse(
             events=[

@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     
     # Database
-    database_url: str = "postgresql://user:password@localhost:5432/counter_db"
+    database_url: str = "sqlite:///./counter_dev.db"
     
     # External API Keys
     rentcast_api_key: str = ""
@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     
     # Security
-    encryption_key: str = ""
+    encryption_key: str = "bLWraP7fmcLbNWqDBE9--2aQJbpkcZcLEKHy6rw5a-s="
     
     # TLS/SSL Configuration
     tls_enabled: bool = False
